@@ -1,0 +1,17 @@
+volumes:
+    explorer_data:
+services:
+    app:
+        build:
+            context: .
+        image: expanse-explorer:1.0
+        working_dir: /app/
+        volumes:
+            - explorer_data:/app/backend/data/
+        ports:
+            - "1401:1401"
+        env_file:
+            - ./backend/.env_prod
+        entrypoint: []
+        command: sh -c "cd ./backend/ && npm run prod"
+        restart: unless-stopped
