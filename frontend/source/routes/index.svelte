@@ -180,15 +180,15 @@
 	<title>{globals_r.app_name}</title>
 </svelte:head>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3" style="gap:0.5rem">
 	<h3 class="m-0">{globals_r.app_name}</h3>
-	<div class="d-flex align-items-center">
-		<label class="mb-0 mr-3 small">
+	<div class="d-flex flex-wrap align-items-center" style="gap:0.5rem">
+		<label class="mb-0 small">
 			<input type="checkbox" bind:checked={sort_by_count}/>
 			sort by count
 		</label>
 		<input bind:this={file_input} type="file" accept=".sqlite,.db" on:change={upload_db} class="d-none" id="db_input"/>
-		<label for="db_input" class="btn btn-sm btn-primary mb-0 mr-2">load .sqlite</label>
+		<label for="db_input" class="btn btn-sm btn-primary mb-0">load .sqlite</label>
 		<button on:click={download_db} class="btn btn-sm btn-secondary">save .sqlite</button>
 	</div>
 </div>
@@ -198,9 +198,9 @@
 {/if}
 
 <div class="row">
-	<div class="col-3">
+	<div class="col-12 col-md-3 mb-3 mb-md-0">
 		<h6>users ({users.length})</h6>
-		<div class="list-group">
+		<div class="list-group users-list">
 			{#each sorted_users as u (u.username)}
 				<button
 					type="button"
@@ -220,12 +220,12 @@
 		</div>
 	</div>
 
-	<div class="col-9">
+	<div class="col-12 col-md-9">
 		{#if selected_user}
-			<div class="d-flex align-items-center mb-2">
-				<b class="mr-3">u/{selected_user}</b>
-				<label class="mb-0 mr-2 small">sub:</label>
-				<select bind:value={selected_sub} on:change={change_sub} class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px">
+			<div class="d-flex flex-wrap align-items-center mb-2" style="gap:0.5rem">
+				<b>u/{selected_user}</b>
+				<label class="mb-0 small">sub:</label>
+				<select bind:value={selected_sub} on:change={change_sub} class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 200px">
 					<option value="all">all ({items.length === 0 ? 0 : subs.reduce((a, b) => a + b.item_count, 0)})</option>
 					{#each sorted_subs as s}
 						<option value={s.sub}>{s.sub} ({s.item_count})</option>
@@ -240,16 +240,16 @@
 				<small class="text-muted ml-2">{selected_item_ids.size} selected of {items.length}</small>
 			</div>
 
-			<div class="border border-secondary rounded" style="max-height:50vh; overflow-y:auto">
+			<div class="border border-secondary rounded items-scroll">
 				<table class="table table-sm table-dark mb-0">
 					<thead>
 						<tr>
 							<th style="width:30px"></th>
-							<th>type</th>
+							<th class="d-none d-sm-table-cell">type</th>
 							<th>content</th>
-							<th>sub</th>
-							<th>categories</th>
-							<th style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("created")}>
+							<th class="d-none d-md-table-cell">sub</th>
+							<th class="d-none d-lg-table-cell">categories</th>
+							<th class="d-none d-sm-table-cell" style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("created")}>
 								created{item_sort_by === "created" ? (item_sort_order === "desc" ? " ↓" : " ↑") : ""}
 							</th>
 							<th style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("saved")}>
@@ -263,11 +263,16 @@
 								<td on:click|stopPropagation>
 									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
 								</td>
-								<td>{i.type}</td>
-								<td class="text-truncate" style="max-width:300px">{i.content}</td>
-								<td>{i.sub}</td>
-								<td><small>{i.categories}</small></td>
-								<td><small>{fmt_date(i.created_epoch)}</small></td>
+								<td class="d-none d-sm-table-cell">{i.type}</td>
+								<td class="content-cell">
+									{i.content}
+									<div class="d-sm-none small text-muted">
+										{i.type} · {i.sub}{#if i.categories} · {i.categories}{/if}
+									</div>
+								</td>
+								<td class="d-none d-md-table-cell">{i.sub}</td>
+								<td class="d-none d-lg-table-cell"><small>{i.categories}</small></td>
+								<td class="d-none d-sm-table-cell"><small>{fmt_date(i.created_epoch)}</small></td>
 								<td><small>{i.added_epoch ? fmt_date(i.added_epoch) : "-"}</small></td>
 							</tr>
 						{/each}
@@ -278,14 +283,40 @@
 				</table>
 			</div>
 
-			<div class="d-flex align-items-center mt-3">
-				<span class="mr-2">move {selected_item_ids.size} items →</span>
-				<input bind:value={move_target} type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary mr-2" style="max-width:300px"/>
+			<div class="d-flex flex-wrap align-items-center mt-3" style="gap:0.5rem">
+				<span>move {selected_item_ids.size} items →</span>
+				<input bind:value={move_target} type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
 				<button on:click={apply_move} disabled={is_loading || selected_item_ids.size === 0 || !move_target.trim()} class="btn btn-sm btn-warning">apply</button>
 			</div>
 			<small class="text-muted">click a row to open in browser. unknown target users get a placeholder row in user_.</small>
 		{:else}
-			<div class="text-muted mt-5 text-center">select a user on the left</div>
+			<div class="text-muted mt-5 text-center">select a user{#if users.length > 0}{` `}above{/if}</div>
 		{/if}
 	</div>
 </div>
+
+<style>
+	.users-list {
+		max-height: 40vh;
+		overflow-y: auto;
+	}
+	.items-scroll {
+		max-height: 50vh;
+		overflow-y: auto;
+	}
+	.content-cell {
+		word-break: break-word;
+		max-width: 100%;
+	}
+	@media (min-width: 768px) {
+		.users-list {
+			max-height: 70vh;
+		}
+		.content-cell {
+			max-width: 300px;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+	}
+</style>
