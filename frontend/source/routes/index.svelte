@@ -16,6 +16,8 @@
 	let is_loading = false;
 	let file_input;
 	let sort_by_count = false;
+	let item_sort_by = "created";
+	let item_sort_order = "desc";
 
 	$: sorted_users = sort_by_count
 		? [...users].sort((a, b) => b.item_count - a.item_count || a.username.localeCompare(b.username))
@@ -24,6 +26,28 @@
 	$: sorted_subs = sort_by_count
 		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
 		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
+
+	$: sorted_items = (() => {
+		const key = item_sort_by === "saved" ? "added_epoch" : "created_epoch";
+		const sign = item_sort_order === "asc" ? 1 : -1;
+		return [...items].sort((a, b) => {
+			const av = a[key];
+			const bv = b[key];
+			if (av == null && bv == null) return 0;
+			if (av == null) return 1;
+			if (bv == null) return -1;
+			return sign * (av - bv);
+		});
+	})();
+
+	function toggle_item_sort(col) {
+		if (item_sort_by === col) {
+			item_sort_order = item_sort_order === "desc" ? "asc" : "desc";
+		} else {
+			item_sort_by = col;
+			item_sort_order = "desc";
+		}
+	}
 
 	async function load_users() {
 		try {
@@ -225,11 +249,16 @@
 							<th>content</th>
 							<th>sub</th>
 							<th>categories</th>
-							<th>created</th>
+							<th style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("created")}>
+								created{item_sort_by === "created" ? (item_sort_order === "desc" ? " ↓" : " ↑") : ""}
+							</th>
+							<th style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("saved")}>
+								saved{item_sort_by === "saved" ? (item_sort_order === "desc" ? " ↓" : " ↑") : ""}
+							</th>
 						</tr>
 					</thead>
 					<tbody>
-						{#each items as i (i.id)}
+						{#each sorted_items as i (i.id)}
 							<tr on:dblclick={() => open_item(i.url)} style="cursor:pointer">
 								<td on:click|stopPropagation>
 									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
@@ -239,10 +268,11 @@
 								<td>{i.sub}</td>
 								<td><small>{i.categories}</small></td>
 								<td><small>{fmt_date(i.created_epoch)}</small></td>
+								<td><small>{i.added_epoch ? fmt_date(i.added_epoch) : "-"}</small></td>
 							</tr>
 						{/each}
-						{#if items.length === 0}
-							<tr><td colspan="6" class="text-muted text-center">no items</td></tr>
+						{#if sorted_items.length === 0}
+							<tr><td colspan="7" class="text-muted text-center">no items</td></tr>
 						{/if}
 					</tbody>
 				</table>

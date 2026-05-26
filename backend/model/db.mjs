@@ -39,6 +39,7 @@ function init() {
 			username text not null,
 			category text not null,
 			item_id text not null,
+			added_epoch integer,
 			unique (username, category, item_id)
 		);
 		create table if not exists item_sub_icon_url (
@@ -55,6 +56,11 @@ function init() {
 			primary key (item_id, from_username, from_category)
 		);
 	`);
+
+	const user_item_cols = db.prepare("pragma table_info(user_item)").all().map(c => c.name);
+	if (!user_item_cols.includes("added_epoch")) {
+		db.exec("alter table user_item add column added_epoch integer;");
+	}
 }
 
 function get_db() {
@@ -104,9 +110,12 @@ function merge_from_file(uploaded_path) {
 			on conflict (id) do nothing;
 		`);
 
+		const upload_user_item_cols = d.prepare("pragma upload.table_info(user_item)").all().map(c => c.name);
+		const has_added_epoch_upload = upload_user_item_cols.includes("added_epoch");
+		const upload_added_epoch_expr = has_added_epoch_upload ? "u.added_epoch" : "null";
 		d.exec(`
-			insert into main.user_item (username, category, item_id)
-			select u.username, u.category, u.item_id
+			insert into main.user_item (username, category, item_id, added_epoch)
+			select u.username, u.category, u.item_id, ${upload_added_epoch_expr}
 			from upload.user_item u
 			where not exists (
 				select 1 from main.user_item e
@@ -165,7 +174,8 @@ function get_items(username, sub) {
 	}
 	return d.prepare(`
 		select i.id, i.type, i.content, i.author, i.sub, i.url, i.created_epoch,
-		       group_concat(distinct ui.category) as categories
+		       group_concat(distinct ui.category) as categories,
+		       min(ui.added_epoch) as added_epoch
 		from item i
 		inner join user_item ui on ui.item_id = i.id
 		where ui.username = ? ${sub_clause}
@@ -191,7 +201,7 @@ function move_items({ from_user, to_user, item_ids }) {
 		on conflict (username) do nothing;
 	`);
 	const select_rows = d.prepare(`
-		select category, item_id from user_item
+		select category, added_epoch from user_item
 		where username = ? and item_id = ?;
 	`);
 	const record_move = d.prepare(`
@@ -206,7 +216,7 @@ function move_items({ from_user, to_user, item_ids }) {
 		delete from user_item where username = ? and category = ? and item_id = ?;
 	`);
 	const insert_target = d.prepare(`
-		insert into user_item (username, category, item_id) values (?, ?, ?)
+		insert into user_item (username, category, item_id, added_epoch) values (?, ?, ?, ?)
 		on conflict (username, category, item_id) do nothing;
 	`);
 
@@ -219,7 +229,7 @@ function move_items({ from_user, to_user, item_ids }) {
 			for (const row of rows) {
 				record_move.run(item_id, from_user, row.category, to_user, row.category, now_epoch);
 				delete_existing.run(from_user, row.category, item_id);
-				insert_target.run(to_user, row.category, item_id);
+				insert_target.run(to_user, row.category, item_id, row.added_epoch);
 				moved_count++;
 			}
 		}
