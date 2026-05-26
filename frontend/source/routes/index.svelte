@@ -15,6 +15,15 @@
 	let status_message = "";
 	let is_loading = false;
 	let file_input;
+	let sort_by_count = false;
+
+	$: sorted_users = sort_by_count
+		? [...users].sort((a, b) => b.item_count - a.item_count || a.username.localeCompare(b.username))
+		: [...users].sort((a, b) => a.username.localeCompare(b.username));
+
+	$: sorted_subs = sort_by_count
+		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
+		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
 
 	async function load_users() {
 		try {
@@ -149,9 +158,13 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
 	<h3 class="m-0">{globals_r.app_name}</h3>
-	<div>
+	<div class="d-flex align-items-center">
+		<label class="mb-0 mr-3 small">
+			<input type="checkbox" bind:checked={sort_by_count}/>
+			sort by count
+		</label>
 		<input bind:this={file_input} type="file" accept=".sqlite,.db" on:change={upload_db} class="d-none" id="db_input"/>
-		<label for="db_input" class="btn btn-sm btn-primary mb-0">load .sqlite</label>
+		<label for="db_input" class="btn btn-sm btn-primary mb-0 mr-2">load .sqlite</label>
 		<button on:click={download_db} class="btn btn-sm btn-secondary">save .sqlite</button>
 	</div>
 </div>
@@ -164,7 +177,7 @@
 	<div class="col-3">
 		<h6>users ({users.length})</h6>
 		<div class="list-group">
-			{#each users as u (u.username)}
+			{#each sorted_users as u (u.username)}
 				<button
 					type="button"
 					class="list-group-item list-group-item-action bg-dark text-light border-secondary p-2"
@@ -190,7 +203,7 @@
 				<label class="mb-0 mr-2 small">sub:</label>
 				<select bind:value={selected_sub} on:change={change_sub} class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px">
 					<option value="all">all ({items.length === 0 ? 0 : subs.reduce((a, b) => a + b.item_count, 0)})</option>
-					{#each subs as s}
+					{#each sorted_subs as s}
 						<option value={s.sub}>{s.sub} ({s.item_count})</option>
 					{/each}
 				</select>
