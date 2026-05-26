@@ -127,6 +127,27 @@ function merge_from_file(uploaded_path) {
 			);
 		`);
 
+		if (has_added_epoch_upload) {
+			d.exec(`
+				update user_item
+				set added_epoch = (
+					select u.added_epoch
+					from upload.user_item u
+					where u.username = user_item.username
+					  and u.category = user_item.category
+					  and u.item_id = user_item.item_id
+				)
+				where user_item.added_epoch is null
+				  and exists (
+					select 1 from upload.user_item u
+					where u.username = user_item.username
+					  and u.category = user_item.category
+					  and u.item_id = user_item.item_id
+					  and u.added_epoch is not null
+				  );
+			`);
+		}
+
 		d.exec("commit;");
 	} catch (err) {
 		d.exec("rollback;");
