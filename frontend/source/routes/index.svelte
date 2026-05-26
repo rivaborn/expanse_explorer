@@ -16,6 +16,7 @@
 	let is_loading = false;
 	let file_input;
 	let sort_by_count = false;
+	let hide_read = false;
 	let item_sort_by = "created";
 	let item_sort_order = "desc";
 
@@ -27,10 +28,12 @@
 		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
 		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
 
+	$: visible_items = hide_read ? items.filter(i => !i.read_epoch) : items;
+
 	$: sorted_items = (() => {
 		const key = item_sort_by === "saved" ? "added_epoch" : "created_epoch";
 		const sign = item_sort_order === "asc" ? 1 : -1;
-		return [...items].sort((a, b) => {
+		return [...visible_items].sort((a, b) => {
 			const av = a[key];
 			const bv = b[key];
 			if (av == null && bv == null) return 0;
@@ -111,6 +114,34 @@
 		if (url) window.open(url, "_blank");
 	}
 
+	async function set_read_remote(item_id, read) {
+		try {
+			await axios.post(`${globals_r.backend}/set_read`, {
+				user: selected_user,
+				item_id,
+				read
+			});
+		} catch (err) {
+			console.error(err);
+		}
+	}
+
+	function open_and_mark_read(i) {
+		open_item(i.url);
+		if (!i.read_epoch) {
+			i.read_epoch = Math.floor(Date.now() / 1000);
+			items = items;
+			set_read_remote(i.id, true);
+		}
+	}
+
+	function toggle_read(i) {
+		const new_read = !i.read_epoch;
+		i.read_epoch = new_read ? Math.floor(Date.now() / 1000) : null;
+		items = items;
+		set_read_remote(i.id, new_read);
+	}
+
 	async function apply_move() {
 		if (!selected_user || !move_target || selected_item_ids.size === 0) return;
 		const target = move_target.trim().replace(/^u\//i, "");
@@ -187,6 +218,10 @@
 			<input type="checkbox" bind:checked={sort_by_count}/>
 			sort by count
 		</label>
+		<label class="mb-0 small">
+			<input type="checkbox" bind:checked={hide_read}/>
+			hide read
+		</label>
 		<input bind:this={file_input} type="file" accept=".sqlite,.db" on:change={upload_db} class="d-none" id="db_input"/>
 		<label for="db_input" class="btn btn-sm btn-primary mb-0">load .sqlite</label>
 		<button on:click={download_db} class="btn btn-sm btn-secondary">save .sqlite</button>
@@ -245,6 +280,7 @@
 					<thead>
 						<tr>
 							<th style="width:30px"></th>
+							<th style="width:30px" title="read">✓</th>
 							<th class="d-none d-sm-table-cell">type</th>
 							<th>content</th>
 							<th class="d-none d-md-table-cell">sub</th>
@@ -259,9 +295,12 @@
 					</thead>
 					<tbody>
 						{#each sorted_items as i (i.id)}
-							<tr on:click={() => open_item(i.url)} style="cursor:pointer">
+							<tr on:click={() => open_and_mark_read(i)} style="cursor:pointer" class:item-read={!!i.read_epoch}>
 								<td on:click|stopPropagation>
 									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
+								</td>
+								<td on:click|stopPropagation>
+									<input type="checkbox" checked={!!i.read_epoch} on:change={() => toggle_read(i)} title={i.read_epoch ? `read ${fmt_date(i.read_epoch)}` : "mark read"}/>
 								</td>
 								<td class="d-none d-sm-table-cell">{i.type}</td>
 								<td class="content-cell">
@@ -277,7 +316,7 @@
 							</tr>
 						{/each}
 						{#if sorted_items.length === 0}
-							<tr><td colspan="7" class="text-muted text-center">no items</td></tr>
+							<tr><td colspan="8" class="text-muted text-center">no items</td></tr>
 						{/if}
 					</tbody>
 				</table>
@@ -288,7 +327,7 @@
 				<input bind:value={move_target} type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
 				<button on:click={apply_move} disabled={is_loading || selected_item_ids.size === 0 || !move_target.trim()} class="btn btn-sm btn-warning">apply</button>
 			</div>
-			<small class="text-muted">click a row to open in browser. unknown target users get a placeholder row in user_.</small>
+			<small class="text-muted">click a row to open in browser (also marks read). unknown target users get a placeholder row in user_.</small>
 		{:else}
 			<div class="text-muted mt-5 text-center">select a user{#if users.length > 0}{` `}above{/if}</div>
 		{/if}
@@ -307,6 +346,9 @@
 	.content-cell {
 		word-break: break-word;
 		max-width: 100%;
+	}
+	tr.item-read {
+		opacity: 0.55;
 	}
 	@media (min-width: 768px) {
 		.users-list {

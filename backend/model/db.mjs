@@ -40,6 +40,7 @@ function init() {
 			category text not null,
 			item_id text not null,
 			added_epoch integer,
+			read_epoch integer,
 			unique (username, category, item_id)
 		);
 		create table if not exists item_sub_icon_url (
@@ -60,6 +61,9 @@ function init() {
 	const user_item_cols = db.prepare("pragma table_info(user_item)").all().map(c => c.name);
 	if (!user_item_cols.includes("added_epoch")) {
 		db.exec("alter table user_item add column added_epoch integer;");
+	}
+	if (!user_item_cols.includes("read_epoch")) {
+		db.exec("alter table user_item add column read_epoch integer;");
 	}
 }
 
@@ -196,7 +200,8 @@ function get_items(username, sub) {
 	return d.prepare(`
 		select i.id, i.type, i.content, i.author, i.sub, i.url, i.created_epoch,
 		       group_concat(distinct ui.category) as categories,
-		       min(ui.added_epoch) as added_epoch
+		       min(ui.added_epoch) as added_epoch,
+		       max(ui.read_epoch) as read_epoch
 		from item i
 		inner join user_item ui on ui.item_id = i.id
 		where ui.username = ? ${sub_clause}
@@ -222,7 +227,7 @@ function move_items({ from_user, to_user, item_ids }) {
 		on conflict (username) do nothing;
 	`);
 	const select_rows = d.prepare(`
-		select category, added_epoch from user_item
+		select category, added_epoch, read_epoch from user_item
 		where username = ? and item_id = ?;
 	`);
 	const record_move = d.prepare(`
@@ -237,7 +242,7 @@ function move_items({ from_user, to_user, item_ids }) {
 		delete from user_item where username = ? and category = ? and item_id = ?;
 	`);
 	const insert_target = d.prepare(`
-		insert into user_item (username, category, item_id, added_epoch) values (?, ?, ?, ?)
+		insert into user_item (username, category, item_id, added_epoch, read_epoch) values (?, ?, ?, ?, ?)
 		on conflict (username, category, item_id) do nothing;
 	`);
 
@@ -250,7 +255,7 @@ function move_items({ from_user, to_user, item_ids }) {
 			for (const row of rows) {
 				record_move.run(item_id, from_user, row.category, to_user, row.category, now_epoch);
 				delete_existing.run(from_user, row.category, item_id);
-				insert_target.run(to_user, row.category, item_id, row.added_epoch);
+				insert_target.run(to_user, row.category, item_id, row.added_epoch, row.read_epoch);
 				moved_count++;
 			}
 		}
@@ -258,6 +263,19 @@ function move_items({ from_user, to_user, item_ids }) {
 	tx();
 
 	return { moved_user_item_rows: moved_count };
+}
+
+function set_read({ user, item_id, read }) {
+	if (!user || !item_id) {
+		throw new Error("user and item_id are required");
+	}
+	const d = get_db();
+	const epoch = read ? Math.floor(Date.now() / 1000) : null;
+	const info = d.prepare(`
+		update user_item set read_epoch = ?
+		where username = ? and item_id = ?;
+	`).run(epoch, user, item_id);
+	return { updated_rows: info.changes, read_epoch: epoch };
 }
 
 function db_file_path() {
@@ -272,5 +290,6 @@ export {
 	get_subs,
 	get_items,
 	move_items,
+	set_read,
 	db_file_path
 };

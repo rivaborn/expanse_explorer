@@ -111,6 +111,21 @@ app.post("/move", (req, res) => {
 	}
 });
 
+app.post("/set_read", (req, res) => {
+	try {
+		const { user, item_id, read } = req.body || {};
+		if (!user || !item_id || read === undefined) {
+			res.status(400).send({ error: "user, item_id, read are required" });
+			return;
+		}
+		const result = db.set_read({ user, item_id, read: !!read });
+		res.send({ ok: true, ...result });
+	} catch (err) {
+		console.error(err);
+		res.status(400).send({ error: String(err.message || err) });
+	}
+});
+
 app.get("/download_db", (req, res) => {
 	const filepath = db.db_file_path();
 	if (!filesystem.existsSync(filepath)) {
