@@ -123,7 +123,7 @@ function merge_from_file(uploaded_path) {
 			)
 			and not exists (
 				select 1 from main.moves m
-				where m.from_username = u.username and m.from_category = u.category and m.item_id = u.item_id
+				where m.from_username = u.username and m.item_id = u.item_id
 			);
 		`);
 

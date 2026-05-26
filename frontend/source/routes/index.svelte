@@ -259,7 +259,7 @@
 					</thead>
 					<tbody>
 						{#each sorted_items as i (i.id)}
-							<tr on:dblclick={() => open_item(i.url)} style="cursor:pointer">
+							<tr on:click={() => open_item(i.url)} style="cursor:pointer">
 								<td on:click|stopPropagation>
 									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
 								</td>
@@ -283,7 +283,7 @@
 				<input bind:value={move_target} type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary mr-2" style="max-width:300px"/>
 				<button on:click={apply_move} disabled={is_loading || selected_item_ids.size === 0 || !move_target.trim()} class="btn btn-sm btn-warning">apply</button>
 			</div>
-			<small class="text-muted">double-click a row to open in browser. unknown target users get a placeholder row in user_.</small>
+			<small class="text-muted">click a row to open in browser. unknown target users get a placeholder row in user_.</small>
 		{:else}
 			<div class="text-muted mt-5 text-center">select a user on the left</div>
 		{/if}
