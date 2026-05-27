@@ -5,9 +5,15 @@
 	const globals_r = globals.readonly;
 </script>
 <script>
+	const ROW_H_DESKTOP = 36;
+	const ROW_H_MOBILE = 56;
+	const SCROLL_BUFFER_ROWS = 10;
+	const LARGE_USER_THRESHOLD = 1000;
+
 	let users = [];
 	let subs = [];
 	let items = [];
+	let read_overrides = new Map();
 	let selected_user = null;
 	let selected_sub = "all";
 	let selected_item_ids = new Set();
@@ -20,6 +26,12 @@
 	let item_sort_by = "created";
 	let item_sort_order = "desc";
 
+	let scroll_el;
+	let scroll_top = 0;
+	let viewport_h = 400;
+	let row_h = ROW_H_DESKTOP;
+	let scroll_raf = 0;
+
 	$: sorted_users = sort_by_count
 		? [...users].sort((a, b) => b.item_count - a.item_count || a.username.localeCompare(b.username))
 		: [...users].sort((a, b) => a.username.localeCompare(b.username));
@@ -28,12 +40,10 @@
 		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
 		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
 
-	$: visible_items = hide_read ? items.filter(i => !i.read_epoch) : items;
-
 	$: sorted_items = (() => {
 		const key = item_sort_by === "saved" ? "added_epoch" : "created_epoch";
 		const sign = item_sort_order === "asc" ? 1 : -1;
-		return [...visible_items].sort((a, b) => {
+		return [...items].sort((a, b) => {
 			const av = a[key];
 			const bv = b[key];
 			if (av == null && bv == null) return 0;
@@ -42,6 +52,40 @@
 			return sign * (av - bv);
 		});
 	})();
+
+	$: visible_items = (() => {
+		if (!hide_read) return sorted_items;
+		return sorted_items.filter(i => !(read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch));
+	})();
+
+	$: first_visible = Math.max(0, Math.floor(scroll_top / row_h) - SCROLL_BUFFER_ROWS);
+	$: last_visible = Math.min(visible_items.length, Math.ceil((scroll_top + viewport_h) / row_h) + SCROLL_BUFFER_ROWS);
+	$: window_rows = visible_items.slice(first_visible, last_visible);
+	$: top_pad = first_visible * row_h;
+	$: bot_pad = Math.max(0, (visible_items.length - last_visible) * row_h);
+
+	$: if (scroll_el) {
+		viewport_h = scroll_el.clientHeight;
+	}
+
+	function on_scroll() {
+		if (scroll_raf) return;
+		scroll_raf = requestAnimationFrame(() => {
+			scroll_raf = 0;
+			if (!scroll_el) return;
+			scroll_top = scroll_el.scrollTop;
+			viewport_h = scroll_el.clientHeight;
+		});
+	}
+
+	function recompute_row_h() {
+		row_h = window.matchMedia("(min-width: 576px)").matches ? ROW_H_DESKTOP : ROW_H_MOBILE;
+	}
+
+	function reset_scroll() {
+		scroll_top = 0;
+		if (scroll_el) scroll_el.scrollTop = 0;
+	}
 
 	function toggle_item_sort(col) {
 		if (item_sort_by === col) {
@@ -66,15 +110,21 @@
 		selected_user = username;
 		selected_sub = "all";
 		selected_item_ids = new Set();
+		read_overrides = new Map();
 		items = [];
 		subs = [];
+		reset_scroll();
+		const u = users.find(x => x.username === username);
 		try {
-			const [subs_resp, items_resp] = await Promise.all([
-				axios.get(`${globals_r.backend}/subs`, { params: { user: username } }),
-				axios.get(`${globals_r.backend}/items`, { params: { user: username, sub: "all" } })
-			]);
+			const subs_resp = await axios.get(`${globals_r.backend}/subs`, { params: { user: username } });
 			subs = subs_resp.data.subs || [];
+			if (u && u.item_count > LARGE_USER_THRESHOLD && subs.length > 0) {
+				const largest = subs.reduce((a, b) => b.item_count > a.item_count ? b : a);
+				selected_sub = largest.sub;
+			}
+			const items_resp = await axios.get(`${globals_r.backend}/items`, { params: { user: username, sub: selected_sub } });
 			items = items_resp.data.items || [];
+			reset_scroll();
 		} catch (err) {
 			console.error(err);
 			status_message = `error loading user data: ${err.message}`;
@@ -87,6 +137,7 @@
 		try {
 			const response = await axios.get(`${globals_r.backend}/items`, { params: { user: selected_user, sub: selected_sub } });
 			items = response.data.items || [];
+			reset_scroll();
 		} catch (err) {
 			console.error(err);
 			status_message = `error loading items: ${err.message}`;
@@ -126,19 +177,23 @@
 		}
 	}
 
+	function read_epoch_of(i) {
+		return read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch;
+	}
+
 	function open_and_mark_read(i) {
 		open_item(i.url);
-		if (!i.read_epoch) {
-			i.read_epoch = Math.floor(Date.now() / 1000);
-			items = items;
+		if (!read_epoch_of(i)) {
+			read_overrides.set(i.id, Math.floor(Date.now() / 1000));
+			read_overrides = read_overrides;
 			set_read_remote(i.id, true);
 		}
 	}
 
 	function toggle_read(i) {
-		const new_read = !i.read_epoch;
-		i.read_epoch = new_read ? Math.floor(Date.now() / 1000) : null;
-		items = items;
+		const new_read = !read_epoch_of(i);
+		read_overrides.set(i.id, new_read ? Math.floor(Date.now() / 1000) : null);
+		read_overrides = read_overrides;
 		set_read_remote(i.id, new_read);
 	}
 
@@ -199,6 +254,17 @@
 
 	svelte.onMount(() => {
 		load_users();
+		recompute_row_h();
+		const mq = window.matchMedia("(min-width: 576px)");
+		const mq_handler = () => recompute_row_h();
+		mq.addEventListener("change", mq_handler);
+		const resize_handler = () => { if (scroll_el) viewport_h = scroll_el.clientHeight; };
+		window.addEventListener("resize", resize_handler);
+		return () => {
+			mq.removeEventListener("change", mq_handler);
+			window.removeEventListener("resize", resize_handler);
+			if (scroll_raf) cancelAnimationFrame(scroll_raf);
+		};
 	});
 
 	function fmt_date(epoch) {
@@ -275,7 +341,7 @@
 				<small class="text-muted ml-2">{selected_item_ids.size} selected of {items.length}</small>
 			</div>
 
-			<div class="border border-secondary rounded items-scroll">
+			<div class="border border-secondary rounded items-scroll" bind:this={scroll_el} on:scroll={on_scroll}>
 				<table class="table table-sm table-dark mb-0">
 					<thead>
 						<tr>
@@ -294,13 +360,17 @@
 						</tr>
 					</thead>
 					<tbody>
-						{#each sorted_items as i (i.id)}
-							<tr on:click={() => open_and_mark_read(i)} style="cursor:pointer" class:item-read={!!i.read_epoch}>
+						{#if top_pad > 0}
+							<tr aria-hidden="true"><td colspan="8" style="padding:0; border:0"><div style="height:{top_pad}px"></div></td></tr>
+						{/if}
+						{#each window_rows as i (i.id)}
+							{@const read_epoch = read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch}
+							<tr on:click={() => open_and_mark_read(i)} style="cursor:pointer; height:{row_h}px" class:item-read={!!read_epoch}>
 								<td on:click|stopPropagation>
 									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
 								</td>
 								<td on:click|stopPropagation>
-									<input type="checkbox" checked={!!i.read_epoch} on:change={() => toggle_read(i)} title={i.read_epoch ? `read ${fmt_date(i.read_epoch)}` : "mark read"}/>
+									<input type="checkbox" checked={!!read_epoch} on:change={() => toggle_read(i)} title={read_epoch ? `read ${fmt_date(read_epoch)}` : "mark read"}/>
 								</td>
 								<td class="d-none d-sm-table-cell">{i.type}</td>
 								<td class="content-cell">
@@ -315,7 +385,10 @@
 								<td><small>{i.added_epoch ? fmt_date(i.added_epoch) : "-"}</small></td>
 							</tr>
 						{/each}
-						{#if sorted_items.length === 0}
+						{#if bot_pad > 0}
+							<tr aria-hidden="true"><td colspan="8" style="padding:0; border:0"><div style="height:{bot_pad}px"></div></td></tr>
+						{/if}
+						{#if visible_items.length === 0}
 							<tr><td colspan="8" class="text-muted text-center">no items</td></tr>
 						{/if}
 					</tbody>
@@ -346,6 +419,7 @@
 	.content-cell {
 		word-break: break-word;
 		max-width: 100%;
+		overflow: hidden;
 	}
 	tr.item-read {
 		opacity: 0.55;
