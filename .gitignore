@@ -7,3 +7,6 @@ backend/.env_dev
 backend/.env_prod
 *.log
 .DS_Store
+
+# Local backup files from edits
+*.bak

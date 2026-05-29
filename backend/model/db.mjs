@@ -56,6 +56,14 @@ function init() {
 			moved_at_epoch integer not null,
 			primary key (item_id, from_username, from_category)
 		);
+		create table if not exists topic (
+			topic text primary key
+		);
+		create table if not exists sub_topic (
+			sub   text primary key,
+			topic text not null references topic(topic) on delete cascade on update cascade
+		);
+		create index if not exists idx_sub_topic_topic on sub_topic(topic);
 	`);
 
 	const user_item_cols = db.prepare("pragma table_info(user_item)").all().map(c => c.name);
@@ -65,6 +73,42 @@ function init() {
 	if (!user_item_cols.includes("read_epoch")) {
 		db.exec("alter table user_item add column read_epoch integer;");
 	}
+
+	const seed_topics = [
+		"Jokes & Humor",
+		"Reddit Stories & Best-Of",
+		"AITA & Judgement",
+		"Marriage & Divorce",
+		"Infidelity",
+		"Relationship Advice",
+		"Sex & Intimacy",
+		"Non-monogamy",
+		"Erotica & NSFW",
+		"Books & Reading",
+		"Sci-Fi & Fantasy Books",
+		"Long-form Reading & Articles",
+		"Medicine & Healthcare",
+		"Finance & Investing",
+		"Real Estate & Housing",
+		"Tech & Self-hosting",
+		"AI & LLMs",
+		"Video Games (console/PC)",
+		"Handheld & Portable Gaming",
+		"Gaming Deals & Bundles",
+		"Demographics Q&A",
+		"Generic Q&A",
+		"Politics & Society",
+		"News, Data & Tech Culture",
+		"Religion",
+		"TV, Movies & Sitcoms",
+		"Memes & Random Visuals",
+		"Writing & Creating",
+		"Body, Fitness & Appearance",
+		"Miscellaneous"
+	];
+	const insert_topic = db.prepare("insert or ignore into topic(topic) values (?)");
+	const seed_tx = db.transaction(() => { for (const t of seed_topics) insert_topic.run(t); });
+	seed_tx();
 }
 
 function get_db() {
@@ -282,6 +326,149 @@ function db_file_path() {
 	return DB_PATH;
 }
 
+function get_topics() {
+	const d = get_db();
+	return d.prepare(`
+		select t.topic,
+		       coalesce(sc.sub_count, 0)  as sub_count,
+		       coalesce(ic.item_count, 0) as item_count
+		from topic t
+		left join (
+			select topic, count(*) as sub_count
+			from sub_topic
+			group by topic
+		) sc on sc.topic = t.topic
+		left join (
+			select st.topic, count(*) as item_count
+			from sub_topic st
+			inner join item i on i.sub = st.sub
+			group by st.topic
+		) ic on ic.topic = t.topic
+		order by item_count desc, t.topic asc;
+	`).all();
+}
+
+function add_topic(topic) {
+	if (!topic || typeof topic !== "string") throw new Error("topic required");
+	const d = get_db();
+	const info = d.prepare("insert into topic(topic) values (?)").run(topic);
+	return { created: info.changes > 0 };
+}
+
+function rename_topic(old_name, new_name) {
+	if (!old_name || !new_name) throw new Error("old and new topic names required");
+	if (old_name === new_name) return { renamed: false };
+	const d = get_db();
+	const exists_new = d.prepare("select 1 from topic where topic = ?").get(new_name);
+	if (exists_new) {
+		const err = new Error("target topic already exists");
+		err.code = "TOPIC_EXISTS";
+		throw err;
+	}
+	const info = d.prepare("update topic set topic = ? where topic = ?").run(new_name, old_name);
+	if (info.changes === 0) {
+		const err = new Error("topic not found");
+		err.code = "TOPIC_NOT_FOUND";
+		throw err;
+	}
+	return { renamed: true };
+}
+
+function delete_topic(topic) {
+	if (!topic) throw new Error("topic required");
+	const d = get_db();
+	const sub_count = d.prepare("select count(*) as n from sub_topic where topic = ?").get(topic).n;
+	const info = d.prepare("delete from topic where topic = ?").run(topic);
+	return { deleted: info.changes > 0, cascaded_sub_topic_rows: sub_count };
+}
+
+function get_all_subs({ topic } = {}) {
+	const d = get_db();
+	let sql, params;
+	if (topic === undefined || topic === null || topic === "") {
+		sql = `
+			select i.sub,
+			       count(*) as item_count,
+			       st.topic as topic
+			from item i
+			left join sub_topic st on st.sub = i.sub
+			group by i.sub
+			order by item_count desc, i.sub asc;
+		`;
+		params = [];
+	} else if (topic === "__none__") {
+		sql = `
+			select i.sub,
+			       count(*) as item_count,
+			       null as topic
+			from item i
+			left join sub_topic st on st.sub = i.sub
+			where st.sub is null
+			group by i.sub
+			order by item_count desc, i.sub asc;
+		`;
+		params = [];
+	} else {
+		sql = `
+			select i.sub,
+			       count(*) as item_count,
+			       st.topic as topic
+			from item i
+			inner join sub_topic st on st.sub = i.sub
+			where st.topic = ?
+			group by i.sub
+			order by item_count desc, i.sub asc;
+		`;
+		params = [topic];
+	}
+	return d.prepare(sql).all(...params);
+}
+
+function assign_topic({ subs, topic }) {
+	if (!Array.isArray(subs) || subs.length === 0) throw new Error("subs array required");
+	const d = get_db();
+	let count = 0;
+	const tx = d.transaction(() => {
+		if (topic === null || topic === undefined) {
+			const del = d.prepare("delete from sub_topic where sub = ?");
+			for (const s of subs) {
+				const info = del.run(s);
+				count += info.changes;
+			}
+		} else {
+			d.prepare("insert or ignore into topic(topic) values (?)").run(topic);
+			const upsert = d.prepare(`
+				insert into sub_topic(sub, topic) values (?, ?)
+				on conflict(sub) do update set topic = excluded.topic;
+			`);
+			for (const s of subs) {
+				upsert.run(s, topic);
+				count++;
+			}
+		}
+	});
+	tx();
+	return { assigned_count: count };
+}
+
+function get_items_by_topic({ topic }) {
+	if (!topic) throw new Error("topic required");
+	const d = get_db();
+	return d.prepare(`
+		select i.id, i.type, i.content, i.author, i.sub, i.url, i.created_epoch,
+		       ui.username,
+		       group_concat(distinct ui.category) as categories,
+		       min(ui.added_epoch) as added_epoch,
+		       max(ui.read_epoch) as read_epoch
+		from item i
+		inner join sub_topic st on st.sub = i.sub
+		inner join user_item ui on ui.item_id = i.id
+		where st.topic = ?
+		group by i.id, ui.username
+		order by i.created_epoch desc;
+	`).all(topic);
+}
+
 export {
 	init,
 	get_db,
@@ -291,5 +478,12 @@ export {
 	get_items,
 	move_items,
 	set_read,
-	db_file_path
+	db_file_path,
+	get_topics,
+	add_topic,
+	rename_topic,
+	delete_topic,
+	get_all_subs,
+	assign_topic,
+	get_items_by_topic
 };

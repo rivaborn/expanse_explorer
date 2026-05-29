@@ -2,12 +2,10 @@
 	import * as globals from "frontend/source/globals.js";
 	import * as svelte from "svelte";
 	import axios from "axios";
+	import ItemsTable from "frontend/source/components/ItemsTable.svelte";
 	const globals_r = globals.readonly;
 </script>
 <script>
-	const ROW_H_DESKTOP = 36;
-	const ROW_H_MOBILE = 56;
-	const SCROLL_BUFFER_ROWS = 10;
 	const LARGE_USER_THRESHOLD = 1000;
 
 	let users = [];
@@ -23,14 +21,6 @@
 	let file_input;
 	let sort_by_count = false;
 	let hide_read = false;
-	let item_sort_by = "created";
-	let item_sort_order = "desc";
-
-	let scroll_el;
-	let scroll_top = 0;
-	let viewport_h = 400;
-	let row_h = ROW_H_DESKTOP;
-	let scroll_raf = 0;
 
 	$: sorted_users = sort_by_count
 		? [...users].sort((a, b) => b.item_count - a.item_count || a.username.localeCompare(b.username))
@@ -39,62 +29,6 @@
 	$: sorted_subs = sort_by_count
 		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
 		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
-
-	$: sorted_items = (() => {
-		const key = item_sort_by === "saved" ? "added_epoch" : "created_epoch";
-		const sign = item_sort_order === "asc" ? 1 : -1;
-		return [...items].sort((a, b) => {
-			const av = a[key];
-			const bv = b[key];
-			if (av == null && bv == null) return 0;
-			if (av == null) return 1;
-			if (bv == null) return -1;
-			return sign * (av - bv);
-		});
-	})();
-
-	$: visible_items = (() => {
-		if (!hide_read) return sorted_items;
-		return sorted_items.filter(i => !(read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch));
-	})();
-
-	$: first_visible = Math.max(0, Math.floor(scroll_top / row_h) - SCROLL_BUFFER_ROWS);
-	$: last_visible = Math.min(visible_items.length, Math.ceil((scroll_top + viewport_h) / row_h) + SCROLL_BUFFER_ROWS);
-	$: window_rows = visible_items.slice(first_visible, last_visible);
-	$: top_pad = first_visible * row_h;
-	$: bot_pad = Math.max(0, (visible_items.length - last_visible) * row_h);
-
-	$: if (scroll_el) {
-		viewport_h = scroll_el.clientHeight;
-	}
-
-	function on_scroll() {
-		if (scroll_raf) return;
-		scroll_raf = requestAnimationFrame(() => {
-			scroll_raf = 0;
-			if (!scroll_el) return;
-			scroll_top = scroll_el.scrollTop;
-			viewport_h = scroll_el.clientHeight;
-		});
-	}
-
-	function recompute_row_h() {
-		row_h = window.matchMedia("(min-width: 576px)").matches ? ROW_H_DESKTOP : ROW_H_MOBILE;
-	}
-
-	function reset_scroll() {
-		scroll_top = 0;
-		if (scroll_el) scroll_el.scrollTop = 0;
-	}
-
-	function toggle_item_sort(col) {
-		if (item_sort_by === col) {
-			item_sort_order = item_sort_order === "desc" ? "asc" : "desc";
-		} else {
-			item_sort_by = col;
-			item_sort_order = "desc";
-		}
-	}
 
 	async function load_users() {
 		try {
@@ -113,7 +47,6 @@
 		read_overrides = new Map();
 		items = [];
 		subs = [];
-		reset_scroll();
 		const u = users.find(x => x.username === username);
 		try {
 			const subs_resp = await axios.get(`${globals_r.backend}/subs`, { params: { user: username } });
@@ -124,7 +57,6 @@
 			}
 			const items_resp = await axios.get(`${globals_r.backend}/items`, { params: { user: username, sub: selected_sub } });
 			items = items_resp.data.items || [];
-			reset_scroll();
 		} catch (err) {
 			console.error(err);
 			status_message = `error loading user data: ${err.message}`;
@@ -137,20 +69,10 @@
 		try {
 			const response = await axios.get(`${globals_r.backend}/items`, { params: { user: selected_user, sub: selected_sub } });
 			items = response.data.items || [];
-			reset_scroll();
 		} catch (err) {
 			console.error(err);
 			status_message = `error loading items: ${err.message}`;
 		}
-	}
-
-	function toggle_item(item_id) {
-		if (selected_item_ids.has(item_id)) {
-			selected_item_ids.delete(item_id);
-		} else {
-			selected_item_ids.add(item_id);
-		}
-		selected_item_ids = selected_item_ids;
 	}
 
 	function toggle_all() {
@@ -161,40 +83,16 @@
 		}
 	}
 
-	function open_item(url) {
-		if (url) window.open(url, "_blank");
-	}
-
-	async function set_read_remote(item_id, read) {
+	async function set_read_remote(username, item_id, read) {
 		try {
-			await axios.post(`${globals_r.backend}/set_read`, {
-				user: selected_user,
-				item_id,
-				read
-			});
+			await axios.post(`${globals_r.backend}/set_read`, { user: username, item_id, read });
 		} catch (err) {
 			console.error(err);
 		}
 	}
 
-	function read_epoch_of(i) {
-		return read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch;
-	}
-
-	function open_and_mark_read(i) {
-		open_item(i.url);
-		if (!read_epoch_of(i)) {
-			read_overrides.set(i.id, Math.floor(Date.now() / 1000));
-			read_overrides = read_overrides;
-			set_read_remote(i.id, true);
-		}
-	}
-
-	function toggle_read(i) {
-		const new_read = !read_epoch_of(i);
-		read_overrides.set(i.id, new_read ? Math.floor(Date.now() / 1000) : null);
-		read_overrides = read_overrides;
-		set_read_remote(i.id, new_read);
+	function handle_set_read(item, new_read) {
+		set_read_remote(selected_user, item.id, new_read);
 	}
 
 	async function apply_move() {
@@ -254,23 +152,7 @@
 
 	svelte.onMount(() => {
 		load_users();
-		recompute_row_h();
-		const mq = window.matchMedia("(min-width: 576px)");
-		const mq_handler = () => recompute_row_h();
-		mq.addEventListener("change", mq_handler);
-		const resize_handler = () => { if (scroll_el) viewport_h = scroll_el.clientHeight; };
-		window.addEventListener("resize", resize_handler);
-		return () => {
-			mq.removeEventListener("change", mq_handler);
-			window.removeEventListener("resize", resize_handler);
-			if (scroll_raf) cancelAnimationFrame(scroll_raf);
-		};
 	});
-
-	function fmt_date(epoch) {
-		if (!epoch) return "-";
-		return new Date(epoch * 1000).toISOString().slice(0, 16).replace("T", " ");
-	}
 </script>
 
 <svelte:head>
@@ -341,59 +223,14 @@
 				<small class="text-muted ml-2">{selected_item_ids.size} selected of {items.length}</small>
 			</div>
 
-			<div class="border border-secondary rounded items-scroll" bind:this={scroll_el} on:scroll={on_scroll}>
-				<table class="table table-sm table-dark mb-0">
-					<thead>
-						<tr>
-							<th style="width:30px"></th>
-							<th style="width:30px" title="read">✓</th>
-							<th class="d-none d-sm-table-cell">type</th>
-							<th>content</th>
-							<th class="d-none d-md-table-cell">sub</th>
-							<th class="d-none d-lg-table-cell">categories</th>
-							<th class="d-none d-sm-table-cell" style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("created")}>
-								created{item_sort_by === "created" ? (item_sort_order === "desc" ? " ↓" : " ↑") : ""}
-							</th>
-							<th style="cursor:pointer; user-select:none" on:click={() => toggle_item_sort("saved")}>
-								saved{item_sort_by === "saved" ? (item_sort_order === "desc" ? " ↓" : " ↑") : ""}
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#if top_pad > 0}
-							<tr aria-hidden="true"><td colspan="8" style="padding:0; border:0"><div style="height:{top_pad}px"></div></td></tr>
-						{/if}
-						{#each window_rows as i (i.id)}
-							{@const read_epoch = read_overrides.has(i.id) ? read_overrides.get(i.id) : i.read_epoch}
-							<tr on:click={() => open_and_mark_read(i)} style="cursor:pointer; height:{row_h}px" class:item-read={!!read_epoch}>
-								<td on:click|stopPropagation>
-									<input type="checkbox" checked={selected_item_ids.has(i.id)} on:change={() => toggle_item(i.id)}/>
-								</td>
-								<td on:click|stopPropagation>
-									<input type="checkbox" checked={!!read_epoch} on:change={() => toggle_read(i)} title={read_epoch ? `read ${fmt_date(read_epoch)}` : "mark read"}/>
-								</td>
-								<td class="d-none d-sm-table-cell">{i.type}</td>
-								<td class="content-cell">
-									{i.content}
-									<div class="d-sm-none small text-muted">
-										{i.type} · {i.sub}{#if i.categories} · {i.categories}{/if}
-									</div>
-								</td>
-								<td class="d-none d-md-table-cell">{i.sub}</td>
-								<td class="d-none d-lg-table-cell"><small>{i.categories}</small></td>
-								<td class="d-none d-sm-table-cell"><small>{fmt_date(i.created_epoch)}</small></td>
-								<td><small>{i.added_epoch ? fmt_date(i.added_epoch) : "-"}</small></td>
-							</tr>
-						{/each}
-						{#if bot_pad > 0}
-							<tr aria-hidden="true"><td colspan="8" style="padding:0; border:0"><div style="height:{bot_pad}px"></div></td></tr>
-						{/if}
-						{#if visible_items.length === 0}
-							<tr><td colspan="8" class="text-muted text-center">no items</td></tr>
-						{/if}
-					</tbody>
-				</table>
-			</div>
+			<ItemsTable
+				items={items}
+				show_username={false}
+				hide_read={hide_read}
+				bind:read_overrides={read_overrides}
+				bind:selected_item_ids={selected_item_ids}
+				on_set_read={handle_set_read}
+			/>
 
 			<div class="d-flex flex-wrap align-items-center mt-3" style="gap:0.5rem">
 				<span>move {selected_item_ids.size} items →</span>
@@ -417,27 +254,9 @@
 		max-height: 40vh;
 		overflow-y: auto;
 	}
-	.items-scroll {
-		max-height: 50vh;
-		overflow-y: auto;
-	}
-	.content-cell {
-		word-break: break-word;
-		max-width: 100%;
-		overflow: hidden;
-	}
-	tr.item-read {
-		opacity: 0.55;
-	}
 	@media (min-width: 768px) {
 		.users-list {
 			max-height: 70vh;
-		}
-		.content-cell {
-			max-width: 300px;
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
 		}
 	}
 </style>

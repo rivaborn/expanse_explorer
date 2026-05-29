@@ -32,7 +32,7 @@ app.use(fileupload({
 if (process.env.RUN == "dev") {
 	app.use((req, res, next) => {
 		res.set("Access-Control-Allow-Origin", "*");
-		res.set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
+		res.set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
 		res.set("Access-Control-Allow-Headers", "Content-Type");
 		if (req.method === "OPTIONS") return res.sendStatus(204);
 		next();
@@ -133,6 +133,107 @@ app.get("/download_db", (req, res) => {
 		return;
 	}
 	res.download(filepath, "expanse_explorer.sqlite");
+});
+
+app.get("/api/topics", (req, res) => {
+	try {
+		res.send({ topics: db.get_topics() });
+	} catch (err) {
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
+});
+
+app.post("/api/topics", (req, res) => {
+	try {
+		const { topic } = req.body || {};
+		if (!topic || typeof topic !== "string" || !topic.trim()) {
+			res.status(400).send({ error: "topic (non-empty string) required" });
+			return;
+		}
+		const result = db.add_topic(topic.trim());
+		res.status(201).send({ ok: true, ...result });
+	} catch (err) {
+		if (String(err.message || err).includes("UNIQUE")) {
+			res.status(409).send({ error: "topic already exists" });
+			return;
+		}
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
+});
+
+app.patch("/api/topics", (req, res) => {
+	try {
+		const { old: old_name, new: new_name } = req.body || {};
+		if (!old_name || !new_name || !old_name.trim() || !new_name.trim()) {
+			res.status(400).send({ error: "old and new (non-empty strings) required" });
+			return;
+		}
+		const result = db.rename_topic(old_name.trim(), new_name.trim());
+		res.send({ ok: true, ...result });
+	} catch (err) {
+		if (err.code === "TOPIC_EXISTS") {
+			res.status(409).send({ error: "target topic already exists" });
+			return;
+		}
+		if (err.code === "TOPIC_NOT_FOUND") {
+			res.status(404).send({ error: "topic not found" });
+			return;
+		}
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
+});
+
+app.delete("/api/topics/:topic", (req, res) => {
+	try {
+		const topic = req.params.topic;
+		const result = db.delete_topic(topic);
+		res.send({ ok: true, ...result });
+	} catch (err) {
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
+});
+
+app.get("/all_subs", (req, res) => {
+	try {
+		const topic = req.query.topic;
+		res.send({ subs: db.get_all_subs({ topic }) });
+	} catch (err) {
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
+});
+
+app.post("/assign_topic", (req, res) => {
+	try {
+		const { subs, topic } = req.body || {};
+		if (!Array.isArray(subs) || subs.length === 0) {
+			res.status(400).send({ error: "subs (non-empty array) required" });
+			return;
+		}
+		const result = db.assign_topic({ subs, topic });
+		res.send({ ok: true, ...result });
+	} catch (err) {
+		console.error(err);
+		res.status(400).send({ error: String(err.message || err) });
+	}
+});
+
+app.get("/items_by_topic", (req, res) => {
+	try {
+		const topic = req.query.topic;
+		if (!topic) {
+			res.status(400).send({ error: "topic query param required" });
+			return;
+		}
+		res.send({ items: db.get_items_by_topic({ topic }) });
+	} catch (err) {
+		console.error(err);
+		res.status(500).send({ error: String(err.message || err) });
+	}
 });
 
 app.all("*", (req, res) => {
