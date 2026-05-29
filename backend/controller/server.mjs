@@ -197,7 +197,7 @@ app.delete("/api/topics/:topic", (req, res) => {
 	}
 });
 
-app.get("/all_subs", (req, res) => {
+app.get("/api/all_subs", (req, res) => {
 	try {
 		const topic = req.query.topic;
 		res.send({ subs: db.get_all_subs({ topic }) });
@@ -207,7 +207,7 @@ app.get("/all_subs", (req, res) => {
 	}
 });
 
-app.post("/assign_topic", (req, res) => {
+app.post("/api/assign_topic", (req, res) => {
 	try {
 		const { subs, topic } = req.body || {};
 		if (!Array.isArray(subs) || subs.length === 0) {
@@ -222,7 +222,7 @@ app.post("/assign_topic", (req, res) => {
 	}
 });
 
-app.get("/items_by_topic", (req, res) => {
+app.get("/api/items_by_topic", (req, res) => {
 	try {
 		const topic = req.query.topic;
 		if (!topic) {

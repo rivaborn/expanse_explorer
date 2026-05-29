@@ -38,7 +38,7 @@
 		try {
 			const params = {};
 			if (filter_topic !== "__all__") params.topic = filter_topic;
-			const r = await axios.get(`${globals_r.backend}/all_subs`, { params });
+			const r = await axios.get(`${globals_r.backend}/api/all_subs`, { params });
 			subs = r.data.subs || [];
 			selected_sub_set = new Set();
 		} catch (err) {
@@ -154,7 +154,7 @@
 		is_loading = true;
 		status_message = "";
 		try {
-			const r = await axios.post(`${globals_r.backend}/assign_topic`, {
+			const r = await axios.post(`${globals_r.backend}/api/assign_topic`, {
 				subs: Array.from(selected_sub_set),
 				topic: topic_or_null
 			});

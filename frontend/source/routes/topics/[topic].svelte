@@ -23,7 +23,7 @@
 	async function load_items() {
 		if (!topic) return;
 		try {
-			const r = await axios.get(`${globals_r.backend}/items_by_topic`, { params: { topic } });
+			const r = await axios.get(`${globals_r.backend}/api/items_by_topic`, { params: { topic } });
 			items = r.data.items || [];
 			selected_item_ids = new Set();
 			read_overrides = new Map();
