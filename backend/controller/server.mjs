@@ -237,7 +237,7 @@ app.get("/items_by_topic", (req, res) => {
 });
 
 app.all("*", (req, res) => {
-	res.status(404).sendFile(`${process.env.frontend}/build/index.html`);
+	res.sendFile(`${process.env.frontend}/build/index.html`);
 });
 
 server.listen(Number.parseInt(process.env.PORT), "0.0.0.0", () => {
