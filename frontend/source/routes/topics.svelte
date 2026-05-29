@@ -15,11 +15,15 @@
 	let rename_text = "";
 	let status_message = "";
 	let is_loading = false;
-	let sort_by_count = true;     // subreddit list sort
+	let sort_by_count = false;    // subreddit + topic list sort
 
 	$: sorted_subs = sort_by_count
 		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
 		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
+
+	$: sorted_topics = sort_by_count
+		? [...topics].sort((a, b) => b.item_count - a.item_count || a.topic.localeCompare(b.topic))
+		: [...topics].sort((a, b) => a.topic.localeCompare(b.topic));
 
 	$: assignable = target_topic && selected_sub_set.size > 0 && !is_loading;
 	$: unassignable = selected_sub_set.size > 0 && !is_loading;
@@ -208,7 +212,7 @@
 			<button class="btn btn-sm btn-primary" on:click={add_topic} disabled={is_loading || !new_topic_name.trim()}>add</button>
 		</div>
 		<div class="topics-grid">
-			{#each topics as t (t.topic)}
+			{#each sorted_topics as t (t.topic)}
 				<div class="d-flex align-items-center topic-row" style="gap:0.5rem">
 					{#if renaming === t.topic}
 						<input
@@ -246,7 +250,7 @@
 				style="max-width:300px; flex:1 1 200px">
 				<option value="__none__">Uncategorized</option>
 				<option value="__all__">All</option>
-				{#each topics as t (t.topic)}
+				{#each sorted_topics as t (t.topic)}
 					<option value={t.topic}>{t.topic} ({t.sub_count})</option>
 				{/each}
 			</select>
@@ -283,7 +287,7 @@
 			<div class="col-12 col-md-5">
 				<div class="mb-2"><b class="small">target category</b></div>
 				<div class="topic-list border border-secondary rounded">
-					{#each topics as t (t.topic)}
+					{#each sorted_topics as t (t.topic)}
 						<label class="d-flex align-items-center topic-radio py-1 px-2 mb-0">
 							<input type="radio" name="target_topic" value={t.topic} bind:group={target_topic} class="mr-2"/>
 							<span class="flex-fill">{t.topic}</span>

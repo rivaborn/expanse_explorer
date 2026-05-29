@@ -18,7 +18,7 @@
 	let status_message = "";
 	let is_loading = false;
 	let file_input;
-	let sort_by_count = true;
+	let sort_by_count = false;
 	let hide_read = false;
 	let initial_pick_done = false;
 
