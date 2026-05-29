@@ -397,7 +397,12 @@
 
 			<div class="d-flex flex-wrap align-items-center mt-3" style="gap:0.5rem">
 				<span>move {selected_item_ids.size} items →</span>
-				<input bind:value={move_target} type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
+				<input bind:value={move_target} list="move-target-options" type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
+				<datalist id="move-target-options">
+					{#each users as u (u.username)}
+						{#if u.username !== selected_user}<option value={u.username}/>{/if}
+					{/each}
+				</datalist>
 				<button on:click={apply_move} disabled={is_loading || selected_item_ids.size === 0 || !move_target.trim()} class="btn btn-sm btn-warning">apply</button>
 			</div>
 			<small class="text-muted">click a row to open in browser (also marks read). unknown target users get a placeholder row in user_.</small>
