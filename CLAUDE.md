@@ -108,10 +108,11 @@ Multi-route SPA. Bootstrap 4.6 dark theme loaded via CDN in `app.html`. SSR disa
 
 | File | URL | Purpose |
 |------|-----|---------|
-| `routes/__layout.svelte` | (wraps everything) | Top nav linking the two views; `.nav-active` underline on the current route |
-| `routes/index.svelte` | `/` | User-first browse: pick user → pick sub → browse items + move |
+| `routes/__layout.svelte` | (wraps everything) | Top nav linking the three views; `.nav-active` underline on the current route |
+| `routes/index.svelte` | `/` | **Default landing.** Browse by category: sidebar picker auto-selects highest-item-count topic on mount; items table is `ItemsTable` with `show_username=true`. |
+| `routes/by_user.svelte` | `/by_user` | User-first browse: pick user → pick sub → browse items + move. (Was the contents of `index.svelte` before the swap.) |
 | `routes/topics.svelte` | `/topics` | Manage Categories (add/rename inline/delete) + Categorize Subreddits (filter dropdown defaults to Uncategorized, multi-select subs, single-select target topic, Assign/Unassign) |
-| `routes/topics/[topic].svelte` | `/topics/<name>` | Items in a topic across all users — full items table + cross-user move |
+| `routes/topics/[topic].svelte` | `/topics/<name>` | Items in a topic across all users — deep-link variant of `/` for one category |
 
 **Shared component:**
 
@@ -157,7 +158,7 @@ Don't conflate them. The two filters look similar but mean different things.
 
 ## Don'ts
 
-- **Don't reuse a SPA route path for a new API endpoint.** The SPA owns `/`, `/topics`, `/topics/<name>`. New API endpoints that overlap need the `/api/` prefix (or pick a non-colliding path). See commit `2f57660` for the rationale.
+- **Don't reuse a SPA route path for a new API endpoint.** The SPA owns `/`, `/by_user`, `/topics`, `/topics/<name>`. New API endpoints that overlap need the `/api/` prefix (or pick a non-colliding path). This is exactly why `/by_user` (not `/users`) carries the user-first browse — `/users` is the existing API endpoint. See commit `2f57660` for the rationale.
 - **Don't conflate `user_item.category` with the topic concept.** They're different. See the Terminology section.
 - **Don't duplicate the items table.** It lives in `components/ItemsTable.svelte` and is shared. If you need a new column or behavior, prop-ify it on the component.
 - **Don't touch `topic` / `sub_topic` in `merge_from_file`.** Those tables are local-only and must survive uploads.

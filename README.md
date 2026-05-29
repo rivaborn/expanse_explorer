@@ -59,13 +59,14 @@ cd frontend && npm run dev      # :1400, vite (proxies /backend → :1401)
 Frontend at <http://localhost:1400>; the dev server proxies API calls
 through to the backend on `:1401`.
 
-## Two views, two URLs
+## Three views, three URLs
 
 | URL | Purpose |
 |-----|---------|
-| `/` | Browse by Reddit user → subreddit → items |
+| `/` | **Browse by category** (default) — pick a category, see items across every Reddit user |
+| `/by_user` | Browse by Reddit user → subreddit → items |
 | `/topics` | Manage categories (add / rename / delete) + assign subreddits to categories |
-| `/topics/<name>` | Browse items in a category, across every Reddit user |
+| `/topics/<name>` | Deep-link variant of `/` for a specific category |
 
 The 30 seed categories cover the highest-volume themes (Jokes, AITA,
 Marriage, Infidelity, Books, Medicine, Finance, Tech, AI, Video Games,
@@ -125,9 +126,10 @@ frontend/
       ItemsTable.svelte    shared virtual-scroll items table
     routes/
       __layout.svelte      top nav + container
-      index.svelte         "/" — user-first browse
+      index.svelte         "/" — browse by category (default landing)
+      by_user.svelte       "/by_user" — user-first browse
       topics.svelte        "/topics" — manage + categorize
-      topics/[topic].svelte "/topics/<name>" — items across all users
+      topics/[topic].svelte "/topics/<name>" — deep-link variant of "/" for one category
   svelte.config.js         static adapter, fallback index.html
 compose.{dev,prod}.yaml    Docker Compose
 dockerfile                 multi-stage (backend, frontend build, runtime)

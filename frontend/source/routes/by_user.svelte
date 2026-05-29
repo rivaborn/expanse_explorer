@@ -6,54 +6,69 @@
 	const globals_r = globals.readonly;
 </script>
 <script>
-	let topics = [];
+	const LARGE_USER_THRESHOLD = 1000;
+
 	let users = [];
+	let subs = [];
 	let items = [];
 	let read_overrides = new Map();
-	let selected_topic = null;
+	let selected_user = null;
+	let selected_sub = "all";
 	let selected_item_ids = new Set();
 	let move_target = "";
 	let status_message = "";
 	let is_loading = false;
 	let file_input;
-	let sort_by_count = true;
+	let sort_by_count = false;
 	let hide_read = false;
-	let initial_pick_done = false;
 
-	$: sorted_topics = sort_by_count
-		? [...topics].sort((a, b) => b.item_count - a.item_count || a.topic.localeCompare(b.topic))
-		: [...topics].sort((a, b) => a.topic.localeCompare(b.topic));
+	$: sorted_users = sort_by_count
+		? [...users].sort((a, b) => b.item_count - a.item_count || a.username.localeCompare(b.username))
+		: [...users].sort((a, b) => a.username.localeCompare(b.username));
 
-	$: distinct_users = new Set(items.map(i => i.username)).size;
-	$: distinct_subs = new Set(items.map(i => i.sub)).size;
-
-	async function load_topics() {
-		try {
-			const r = await axios.get(`${globals_r.backend}/api/topics`);
-			topics = r.data.topics || [];
-		} catch (err) {
-			console.error(err);
-			status_message = `error loading topics: ${err.message}`;
-		}
-	}
+	$: sorted_subs = sort_by_count
+		? [...subs].sort((a, b) => b.item_count - a.item_count || a.sub.localeCompare(b.sub))
+		: [...subs].sort((a, b) => a.sub.localeCompare(b.sub));
 
 	async function load_users() {
 		try {
-			const r = await axios.get(`${globals_r.backend}/users`);
-			users = r.data.users || [];
+			const response = await axios.get(`${globals_r.backend}/users`);
+			users = response.data.users || [];
 		} catch (err) {
 			console.error(err);
+			status_message = `error loading users: ${err.message}`;
 		}
 	}
 
-	async function select_topic(name) {
-		selected_topic = name;
+	async function select_user(username) {
+		selected_user = username;
+		selected_sub = "all";
 		selected_item_ids = new Set();
 		read_overrides = new Map();
 		items = [];
+		subs = [];
+		const u = users.find(x => x.username === username);
 		try {
-			const r = await axios.get(`${globals_r.backend}/api/items_by_topic`, { params: { topic: name } });
-			items = r.data.items || [];
+			const subs_resp = await axios.get(`${globals_r.backend}/subs`, { params: { user: username } });
+			subs = subs_resp.data.subs || [];
+			if (u && u.item_count > LARGE_USER_THRESHOLD && subs.length > 0) {
+				const largest = subs.reduce((a, b) => b.item_count > a.item_count ? b : a);
+				selected_sub = largest.sub;
+			}
+			const items_resp = await axios.get(`${globals_r.backend}/items`, { params: { user: username, sub: selected_sub } });
+			items = items_resp.data.items || [];
+		} catch (err) {
+			console.error(err);
+			status_message = `error loading user data: ${err.message}`;
+		}
+	}
+
+	async function change_sub() {
+		if (!selected_user) return;
+		selected_item_ids = new Set();
+		try {
+			const response = await axios.get(`${globals_r.backend}/items`, { params: { user: selected_user, sub: selected_sub } });
+			items = response.data.items || [];
 		} catch (err) {
 			console.error(err);
 			status_message = `error loading items: ${err.message}`;
@@ -77,39 +92,29 @@
 	}
 
 	function handle_set_read(item, new_read) {
-		set_read_remote(item.username, item.id, new_read);
+		set_read_remote(selected_user, item.id, new_read);
 	}
 
 	async function apply_move() {
-		if (!move_target || selected_item_ids.size === 0) return;
+		if (!selected_user || !move_target || selected_item_ids.size === 0) return;
 		const target = move_target.trim().replace(/^u\//i, "");
 		if (!target) return;
-		const by_source = new Map();
-		for (const item of items) {
-			if (!selected_item_ids.has(item.id)) continue;
-			const u = item.username;
-			if (u === target) continue;
-			if (!by_source.has(u)) by_source.set(u, []);
-			by_source.get(u).push(item.id);
-		}
-		if (by_source.size === 0) {
-			status_message = "nothing to move (target same as source on every selection)";
+		if (target === selected_user) {
+			status_message = "from_user and to_user must differ";
 			return;
 		}
 		is_loading = true;
 		status_message = "";
-		let total = 0;
 		try {
-			for (const [from_user, item_ids] of by_source) {
-				const r = await axios.post(`${globals_r.backend}/move`, {
-					from_user, to_user: target, item_ids
-				});
-				total += r.data.moved_user_item_rows || 0;
-			}
-			status_message = `moved ${total} user_item rows from ${by_source.size} source user${by_source.size === 1 ? "" : "s"} → u/${target}`;
+			const response = await axios.post(`${globals_r.backend}/move`, {
+				from_user: selected_user,
+				to_user: target,
+				item_ids: Array.from(selected_item_ids)
+			});
+			status_message = `moved ${response.data.moved_user_item_rows} user_item rows from u/${selected_user} to u/${target}`;
 			move_target = "";
 			await load_users();
-			if (selected_topic) await select_topic(selected_topic);
+			await select_user(selected_user);
 		} catch (err) {
 			console.error(err);
 			status_message = `error: ${err.response?.data?.error || err.message}`;
@@ -131,9 +136,8 @@
 			});
 			status_message = "merged successfully";
 			file_input.value = "";
-			await load_topics();
 			await load_users();
-			if (selected_topic) await select_topic(selected_topic);
+			if (selected_user) await select_user(selected_user);
 		} catch (err) {
 			console.error(err);
 			status_message = `error: ${err.response?.data?.error || err.message}`;
@@ -146,18 +150,9 @@
 		window.open(`${globals_r.backend}/download_db`, "_blank");
 	}
 
-	svelte.onMount(async () => {
-		await Promise.all([load_topics(), load_users()]);
+	svelte.onMount(() => {
+		load_users();
 	});
-
-	// Auto-pick the highest-item-count category once topics arrive.
-	$: if (!initial_pick_done && topics.length > 0 && !selected_topic) {
-		const candidate = [...topics].sort((a, b) => b.item_count - a.item_count)[0];
-		if (candidate && candidate.item_count > 0) {
-			initial_pick_done = true;
-			select_topic(candidate.topic);
-		}
-	}
 </script>
 
 <svelte:head>
@@ -187,35 +182,38 @@
 
 <div class="row">
 	<div class="col-12 col-md-3 mb-3 mb-md-0">
-		<h6>categories ({topics.length})</h6>
-		<div class="list-group topics-list">
-			{#each sorted_topics as t (t.topic)}
+		<h6>users ({users.length})</h6>
+		<div class="list-group users-list">
+			{#each sorted_users as u (u.username)}
 				<button
 					type="button"
 					class="list-group-item list-group-item-action bg-dark text-light border-secondary p-2"
-					class:active={selected_topic === t.topic}
-					on:click={() => select_topic(t.topic)}
+					class:active={selected_user === u.username}
+					on:click={() => select_user(u.username)}
 				>
 					<div class="d-flex justify-content-between">
-						<span>{t.topic}</span>
-						<small class="text-muted">{t.item_count}</small>
+						<span>u/{u.username}</span>
+						<small class="text-muted">{u.item_count}</small>
 					</div>
-					<small class="text-muted">{t.sub_count} sub{t.sub_count === 1 ? "" : "s"}</small>
 				</button>
 			{/each}
-			{#if topics.length === 0}
-				<div class="text-muted small">no categories yet</div>
+			{#if users.length === 0}
+				<div class="text-muted small">no users yet — load a .sqlite</div>
 			{/if}
 		</div>
 	</div>
 
 	<div class="col-12 col-md-9">
-		{#if selected_topic}
+		{#if selected_user}
 			<div class="d-flex flex-wrap align-items-center mb-2" style="gap:0.5rem">
-				<b>{selected_topic}</b>
-				<small class="text-muted">
-					{items.length} items · {distinct_users} user{distinct_users === 1 ? "" : "s"} · {distinct_subs} sub{distinct_subs === 1 ? "" : "s"}
-				</small>
+				<b>u/{selected_user}</b>
+				<label class="mb-0 small">sub:</label>
+				<select bind:value={selected_sub} on:change={change_sub} class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 200px">
+					<option value="all">all ({items.length === 0 ? 0 : subs.reduce((a, b) => a + b.item_count, 0)})</option>
+					{#each sorted_subs as s}
+						<option value={s.sub}>{s.sub} ({s.item_count})</option>
+					{/each}
+				</select>
 			</div>
 
 			<div class="mb-2">
@@ -227,7 +225,7 @@
 
 			<ItemsTable
 				items={items}
-				show_username={true}
+				show_username={false}
 				hide_read={hide_read}
 				bind:read_overrides={read_overrides}
 				bind:selected_item_ids={selected_item_ids}
@@ -236,35 +234,29 @@
 
 			<div class="d-flex flex-wrap align-items-center mt-3" style="gap:0.5rem">
 				<span>move {selected_item_ids.size} items →</span>
-				<input bind:value={move_target} list="cat-move-target-options" type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
-				<datalist id="cat-move-target-options">
+				<input bind:value={move_target} list="move-target-options" type="text" placeholder="u/target_user" class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 180px"/>
+				<datalist id="move-target-options">
 					{#each users as u (u.username)}
-						<option value={u.username}/>
+						{#if u.username !== selected_user}<option value={u.username}/>{/if}
 					{/each}
 				</datalist>
 				<button on:click={apply_move} disabled={is_loading || selected_item_ids.size === 0 || !move_target.trim()} class="btn btn-sm btn-warning">apply</button>
 			</div>
-			<small class="text-muted">
-				selecting items from multiple users sends one move per source user. unmapped subs don't show up here — assign them in <a href="/topics">organize by category</a>.
-			</small>
+			<small class="text-muted">click a row to open in browser (also marks read). unknown target users get a placeholder row in user_.</small>
 		{:else}
-			<div class="text-muted mt-5 text-center">
-				{topics.length === 0
-					? "load a .sqlite to begin"
-					: "pick a category from the left"}
-			</div>
+			<div class="text-muted mt-5 text-center">select a user{#if users.length > 0}{` `}above{/if}</div>
 		{/if}
 	</div>
 </div>
 
 <style>
-	.topics-list {
+	.users-list {
 		max-height: 40vh;
 		overflow-y: auto;
 	}
 	@media (min-width: 768px) {
-		.topics-list {
-			max-height: 75vh;
+		.users-list {
+			max-height: 70vh;
 		}
 	}
 </style>

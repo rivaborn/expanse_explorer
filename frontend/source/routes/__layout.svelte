@@ -6,7 +6,8 @@
 
 <div class="container-fluid p-3">
 	<nav class="mb-3 d-flex flex-wrap align-items-center" style="gap:1rem">
-		<a href="/" class:nav-active={$page.url.pathname === "/"}>browse by user</a>
+		<a href="/" class:nav-active={$page.url.pathname === "/"}>browse by category</a>
+		<a href="/by_user" class:nav-active={$page.url.pathname === "/by_user"}>browse by user</a>
 		<a href="/topics" class:nav-active={$page.url.pathname === "/topics" || $page.url.pathname.startsWith("/topics/")}>organize by category</a>
 	</nav>
 	<slot></slot>
