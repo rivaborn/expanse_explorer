@@ -73,7 +73,7 @@ Single Express server. Two endpoint families:
 | POST | `/api/assign_topic` | `{subs, topic}` (`topic: null` to unassign); upserts in one tx |
 | GET | `/api/items_by_topic?topic=` | Items in a topic across all users (one row per `(item, username)` pair) |
 
-**Why the `/api/` prefix on topic endpoints**: the SPA route `/topics` would otherwise collide with the un-prefixed `GET /topics`. The other endpoints don't need the prefix because no SPA route shadows them. If you add a SPA route that overlaps an existing un-prefixed endpoint, prefix the endpoint accordingly.
+**Why the `/api/` prefix on topic endpoints**: the SPA route `/topics` would otherwise collide with the un-prefixed `GET /topics`. After fixing that one collision (commit `2f57660`), we consolidated the whole topic family under `/api/` for consistency (commit `ee1eab8`) — so every topic-related endpoint has the same prefix even though only `/api/topics` strictly needed it. The original Reddit-workflow endpoints (`/users`, `/subs`, `/items`, `/move`, `/set_read`, `/open_db`, `/download_db`) are unchanged. If you add a new SPA route that would shadow an un-prefixed endpoint, do the same dance: move the endpoint under `/api/` and update the frontend callers.
 
 In dev mode (`RUN=dev`) CORS allows GET/POST/PATCH/DELETE/OPTIONS. In prod the built frontend is served as static files from the same Express process.
 
@@ -94,7 +94,23 @@ topic              (topic PK)
 sub_topic          (sub PK, topic FK — ON DELETE CASCADE + ON UPDATE CASCADE)
 ```
 
-`merge_from_file(path)` runs inside a transaction; checks the `moves` table before assigning items so in-Explorer moves win over the uploaded file. **It does NOT touch `topic` / `sub_topic`** — those are local Explorer state and persist across uploads.
+`merge_from_file(path)` runs inside a transaction. **Add-only**, never updates existing items, two NOT EXISTS guards on the `user_item` insert:
+
+1. Skip `(username, category, item_id)` triples already in main — no duplicate assignment rows.
+2. Skip any row whose `(from_username, item_id)` appears in `moves` — so re-uploading a stale Expanse export can't undo an in-Explorer move. **The `moves` table is the load-bearing invariant** that makes Explorer's reorganization survive re-imports.
+
+What the merge leaves alone:
+- `item.content / title / url / sub` of existing item ids (the original wins; Expanse's newer copy of the same id is dropped).
+- `read_epoch` on existing `user_item` rows (read state survives).
+- `topic` / `sub_topic` — Explorer-local, never touched.
+- `moves` — append-only audit, never touched.
+
+What the merge does upsert:
+- `user_` tokens via `COALESCE` (non-null wins); epochs via `MAX`.
+- `item_sub_icon_url` — newer URL replaces old.
+- `added_epoch` on existing `user_item` rows that were NULL (backfilled from upload).
+
+New subreddits in an upload show up as **Uncategorized** until you assign them via `/topics`.
 
 `init()` seeds 30 default topics via `insert or ignore` (idempotent — won't overwrite user renames). The seed array lives at the bottom of `init()`; edit it directly to change the seed list (existing installs need to insert any new ones manually).
 
@@ -156,6 +172,28 @@ The DB column / variable names use `topic` to avoid collision; the UI says "Cate
 
 Don't conflate them. The two filters look similar but mean different things.
 
+## Operational scripts
+
+`scripts/categorize_subs.py` — one-shot bulk assigner. Walks
+`GET /api/all_subs?topic=__none__`, classifies each sub via (1) an
+explicit SEED dict of high-confidence assignments and (2) a regex
+RULES_RAW list of keyword patterns (first match wins), and POSTs the
+results to `/api/assign_topic` in batches.
+
+- Dry-run by default. Pass `--apply` to actually POST.
+- `--show-misc` dumps every sub that fell into Miscellaneous so you
+  can see what didn't match and extend the rules.
+- Re-runnable: only affects `topic = __none__` (Uncategorized) subs,
+  so re-running picks up new subs from a fresh upload without
+  disturbing existing assignments.
+
+Extend the SEED dict for one-off picks; extend RULES_RAW for patterns
+that catch a class of subs. Apply via:
+
+```bash
+python3 scripts/categorize_subs.py --apply
+```
+
 ## Don'ts
 
 - **Don't reuse a SPA route path for a new API endpoint.** The SPA owns `/`, `/by_user`, `/topics`, `/topics/<name>`. New API endpoints that overlap need the `/api/` prefix (or pick a non-colliding path). This is exactly why `/by_user` (not `/users`) carries the user-first browse — `/users` is the existing API endpoint. See commit `2f57660` for the rationale.
@@ -165,6 +203,9 @@ Don't conflate them. The two filters look similar but mean different things.
 
 ## Recent changes worth remembering
 
+- `339746d` — `scripts/categorize_subs.py` one-shot bulk assigner.
+- `ee1eab8` — Consolidated `/all_subs`, `/assign_topic`, `/items_by_topic` under `/api/` so the topic family has one prefix.
+- `f38601b` — Browse-by-category is now the default tab (`/`). User-first browse moved to `/by_user` (not `/users` — that's an API endpoint).
 - `5061726` — SPA fallback now returns 200 instead of 404.
 - `2f57660` — Category-first organization: `topic` / `sub_topic` schema, 30-topic seed, `/api/topics` family, new `/topics` and `/topics/[topic]` routes, shared `ItemsTable` component.
 - `85d5d23` — Move-target input gained a `<datalist>` of existing users for autocomplete.

@@ -74,18 +74,48 @@ Demographics Q&A, Politics, Sex, Erotica, etc.) plus a
 **Miscellaneous** catch-all. They're just suggestions — edit the names,
 add your own, delete the ones you don't use.
 
+For bulk first-pass categorization of every subreddit in your DB, run
+`scripts/categorize_subs.py --apply`. It uses an explicit seed list per
+category plus a keyword/regex heuristic for the long tail, then POSTs
+to `/api/assign_topic`. Anything that doesn't match a rule lands in
+Miscellaneous. Safe to re-run after a new upload — it only touches
+Uncategorized subs.
+
 ## How merging works
 
 `POST /open_db` accepts a `.sqlite` upload and merges it into
-`backend/data/current.sqlite`. The merge is **add-only**:
+`backend/data/current.sqlite`. The merge is **add-only** and treats
+your in-Explorer changes as the source of truth.
 
-- New users / items / category icons / FN-import slugs are inserted.
-- Existing user/item rows are left alone (the `moves` audit table
-  records every reassignment, and uploaded data won't undo a move).
-- Subreddit-to-category mappings (`topic` / `sub_topic` tables) are
-  Explorer-local and untouched by the merge.
+What survives a re-upload:
 
-No data ever flows back to Expanse.
+- **Moves you made.** The `moves` audit row blocks re-assignment of
+  any item back to its old user.
+- **Read state.** Existing `user_item.read_epoch` is never touched.
+- **Topic assignments.** `topic` / `sub_topic` are Explorer-local and
+  not part of the merge at all.
+- **Item content.** If the upload has a different version of an item
+  with the same id, the original wins.
+
+What the merge does:
+
+- Inserts new items / users / category icons / FN-import slugs.
+- Inserts new `user_item` assignments where you don't already have
+  that `(user, category, item)` triple **and** the item wasn't moved
+  away from that user.
+- Upserts `user_` tokens (non-null wins) and updates epochs to the
+  newer value.
+- Backfills `user_item.added_epoch` on existing rows that were NULL.
+
+What it doesn't do:
+
+- Doesn't delete anything, ever.
+- Doesn't touch your topic mappings — new subreddits in the upload
+  show up under **Uncategorized** until you assign them.
+- Doesn't send anything back to Expanse.
+
+The whole thing runs in a single SQLite transaction; rollback on any
+error leaves the DB untouched.
 
 ## REST API
 
@@ -131,6 +161,9 @@ frontend/
       topics.svelte        "/topics" — manage + categorize
       topics/[topic].svelte "/topics/<name>" — deep-link variant of "/" for one category
   svelte.config.js         static adapter, fallback index.html
+scripts/
+  categorize_subs.py       one-shot bulk subreddit-to-category assigner
+                           (regex/keyword heuristic; --apply to POST)
 compose.{dev,prod}.yaml    Docker Compose
 dockerfile                 multi-stage (backend, frontend build, runtime)
 run.sh                     `./run.sh {dev|prod} {build|up|down|update}`
