@@ -11,6 +11,8 @@
 	let items = [];
 	let read_overrides = new Map();
 	let selected_topic = null;
+	let selected_sub = "all";
+	let prev_selected_sub = "all";
 	let selected_item_ids = new Set();
 	let move_target = "";
 	let status_message = "";
@@ -24,8 +26,30 @@
 		? [...topics].sort((a, b) => b.item_count - a.item_count || a.topic.localeCompare(b.topic))
 		: [...topics].sort((a, b) => a.topic.localeCompare(b.topic));
 
-	$: distinct_users = new Set(items.map(i => i.username)).size;
-	$: distinct_subs = new Set(items.map(i => i.sub)).size;
+	// Sub dropdown options: every sub appearing in the currently-loaded
+	// items, with a per-sub item count. Re-derived whenever items change.
+	$: sorted_subs_in_topic = (() => {
+		const counts = new Map();
+		for (const i of items) counts.set(i.sub, (counts.get(i.sub) || 0) + 1);
+		return [...counts.entries()]
+			.map(([sub, item_count]) => ({ sub, item_count }))
+			.sort((a, b) => sort_by_count
+				? b.item_count - a.item_count || a.sub.localeCompare(b.sub)
+				: a.sub.localeCompare(b.sub));
+	})();
+
+	$: filtered_items = selected_sub === "all"
+		? items
+		: items.filter(i => i.sub === selected_sub);
+
+	// Clear selection when the sub filter changes (parallels /by_user).
+	$: if (selected_sub !== prev_selected_sub) {
+		prev_selected_sub = selected_sub;
+		selected_item_ids = new Set();
+	}
+
+	$: distinct_users = new Set(filtered_items.map(i => i.username)).size;
+	$: distinct_subs = new Set(filtered_items.map(i => i.sub)).size;
 
 	async function load_topics() {
 		try {
@@ -48,6 +72,8 @@
 
 	async function select_topic(name) {
 		selected_topic = name;
+		selected_sub = "all";
+		prev_selected_sub = "all";
 		selected_item_ids = new Set();
 		read_overrides = new Map();
 		items = [];
@@ -61,10 +87,10 @@
 	}
 
 	function toggle_all() {
-		if (selected_item_ids.size === items.length) {
+		if (selected_item_ids.size === filtered_items.length) {
 			selected_item_ids = new Set();
 		} else {
-			selected_item_ids = new Set(items.map(i => i.id));
+			selected_item_ids = new Set(filtered_items.map(i => i.id));
 		}
 	}
 
@@ -85,7 +111,7 @@
 		const target = move_target.trim().replace(/^u\//i, "");
 		if (!target) return;
 		const by_source = new Map();
-		for (const item of items) {
+		for (const item of filtered_items) {
 			if (!selected_item_ids.has(item.id)) continue;
 			const u = item.username;
 			if (u === target) continue;
@@ -213,20 +239,27 @@
 		{#if selected_topic}
 			<div class="d-flex flex-wrap align-items-center mb-2" style="gap:0.5rem">
 				<b>{selected_topic}</b>
+				<label class="mb-0 small">sub:</label>
+				<select bind:value={selected_sub} class="form-control form-control-sm bg-dark text-light border-secondary" style="max-width:300px; flex:1 1 200px">
+					<option value="all">all ({items.length})</option>
+					{#each sorted_subs_in_topic as s (s.sub)}
+						<option value={s.sub}>{s.sub} ({s.item_count})</option>
+					{/each}
+				</select>
 				<small class="text-muted">
-					{items.length} items · {distinct_users} user{distinct_users === 1 ? "" : "s"} · {distinct_subs} sub{distinct_subs === 1 ? "" : "s"}
+					{filtered_items.length} items · {distinct_users} user{distinct_users === 1 ? "" : "s"} · {distinct_subs} sub{distinct_subs === 1 ? "" : "s"}
 				</small>
 			</div>
 
 			<div class="mb-2">
 				<button type="button" class="btn btn-sm btn-outline-light" on:click={toggle_all}>
-					{selected_item_ids.size === items.length && items.length > 0 ? "deselect all" : "select all"}
+					{selected_item_ids.size === filtered_items.length && filtered_items.length > 0 ? "deselect all" : "select all"}
 				</button>
-				<small class="text-muted ml-2">{selected_item_ids.size} selected of {items.length}</small>
+				<small class="text-muted ml-2">{selected_item_ids.size} selected of {filtered_items.length}</small>
 			</div>
 
 			<ItemsTable
-				items={items}
+				items={filtered_items}
 				show_username={true}
 				hide_read={hide_read}
 				bind:read_overrides={read_overrides}
